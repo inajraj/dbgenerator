@@ -6,6 +6,9 @@ from google_auth_oauthlib.flow import InstalledAppFlow
 from google.auth.transport.requests import Request
 import mysql.connector
 
+from dateUtils import convertdate
+from dbscript import runScript
+
 # If modifying these scopes, delete the file token.pickle.
 SCOPES = ['https://www.googleapis.com/auth/spreadsheets.readonly']
 
@@ -69,29 +72,57 @@ def main():
     if not values:
         print('No data found.')
     else:
-        for row in values:
+        for metaRow in values:
             res=sheet.values().get(spreadsheetId=SPREADSHEET_ID,
-                                range=row[0]).execute()
+                                range=metaRow[0]).execute()
             tablerows = res.get('values', [])
-            print(row[0])
-            if (row[1] == 'Y'):
+            print(metaRow[0])
+            if (metaRow[1] == 'Y'):
                 #create the table only if the indicator is Y
                 #drop the table first
-                str = "DROP TABLE IF EXISTS " + row[0]
+                str = "DROP TABLE IF EXISTS " + metaRow[0]
                 mycursor.execute(str)
-                finalStr = "CREATE TABLE `" + row[0] + "` ("
-                for trow in tablerows:
+                finalStr = "CREATE TABLE `" + metaRow[0] + "` ("
+                for tdrow in tablerows:
                     
-                    finalStr  = finalStr + "`" + trow[0] + "` " + trow[1] + ","
-                    print(trow)
+                    finalStr  = finalStr + "`" + tdrow[0] + "` " + tdrow[1] + ","
+                    print(tdrow)
                     
                     #check this row has primary key column
-                    if ('PK' in trow):
-                        pkString = "PRIMARY KEY (`" + trow[0] + "`))"
+                    if ('PK' in tdrow[2]):
+                        pkString = "PRIMARY KEY (`" + tdrow[0] + "`))"
                 #need to add primary key - to check the loop again
                 mycursor.execute(finalStr+pkString)
                 print(finalStr+pkString)
-            
+            if (metaRow[2] == 'Y'):
+                #load sample data 
+                #truncate tables
+                runScript("TRUNCATE TABLE `" + metaRow[0] + "`")
+
+                #range name will be TableName.SampleData
+                DataRange = metaRow[0] + ".SampleData"
+                res=sheet.values().get(spreadsheetId=SPREADSHEET_ID,
+                                range=DataRange).execute()
+                dataRows = res.get('values', [])
+                
+                #get the columns (max columns will do)
+                nColumns = max(list(map(len,dataRows)))
+                print(nColumns)
+                queryList = []
+                for i in range(nColumns):
+                    instr = "INSERT INTO `" + metaRow[0] + "` ("
+                    valstr = "VALUES ("
+                    for fld in zip(tablerows,dataRows): # tuple of two lists
+                        if i < len(fld[1]): #check if the second list has members for index i
+                            if fld[1][i] != '' and 'ID' not in fld[1][i]: #it it is empty do not add the field
+                                instr = instr + fld[0][0] + ","
+                                if fld[0][2] == 'D':
+                                    valstr = valstr + "'" +  convertdate(fld[1][i]) + "',"
+                                else:
+                                    valstr = valstr + "'" +  fld[1][i] + "',"
+                    qStr = instr[:-1]+") " + valstr[:-1] + ")"
+                    runScript(qStr)
+                    print(qStr)
 
 if __name__ == '__main__':
     main()
